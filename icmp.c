@@ -17,7 +17,6 @@
 #define handle_error(msg) \
         do { perror(msg); exit(EXIT_FAILURE); } while(0)
 
-#define PORT                    8080
 #define DEST_MSG                "Hello from destination"
 
 /* Manually compute the checksum for ICMP Packet */
@@ -93,43 +92,48 @@ int main(int argc, char* argv[]) {
         construct_icmp_echo_req(&icmp_p.header, &icmp_p);
 
         struct timeval start, end;
-        /* starts the timer to measure the 1 round trip */
-        gettimeofday(&start, NULL);
+        while(1) {
+                /* starts the timer to measure the 1 round trip */
+                gettimeofday(&start, NULL);
 
-        /* sends the packet to the destination server */
-        if (sendto(sockfd, &icmp_p, sizeof(icmp_header) + strlen(DEST_MSG), 0,
-                   (struct sockaddr*)&dest_addr, sizeof(dest_addr)) == -1)
-                handle_error("sendto");
+                /* sends the packet to the destination server */
+                if (sendto(sockfd, &icmp_p, sizeof(icmp_header) + strlen(DEST_MSG), 0,
+                           (struct sockaddr*)&dest_addr, sizeof(dest_addr)) == -1)
+                        handle_error("sendto");
 
-        /* recvs the packet from the destination server */
-        ssize_t recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
-                                    (struct sockaddr*)&recv_addr, &recv_addr_len);
-        /* ends the timer to measure the 1 tip round */
-        gettimeofday(&end, NULL);
-        if (recv_len == -1)
-                handle_error("recvfrom");
+                /* recvs the packet from the destination server */
+                ssize_t recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0,
+                                            (struct sockaddr*)&recv_addr, &recv_addr_len);
+                /* ends the timer to measure the 1 tip round */
+                gettimeofday(&end, NULL);
+                if (recv_len == -1)
+                        handle_error("recvfrom");
 
-        /* calculates the total time for 1 round trip */
-        long rtt = (end.tv_sec - start.tv_sec) * 1000 +
-                   (end.tv_usec - start.tv_usec) / 1000;
+                /* calculates the total time for 1 round trip */
+                long rtt = (end.tv_sec - start.tv_sec) * 1000 +
+                           (end.tv_usec - start.tv_usec) / 1000;
 
-        /* So here's the case when the kernel receives the packet
-         * from destination server it adds extra information
-         * [IP Header] [ICMP Header] [ICMP Payload (your msg)]
-         * ^         ^
-         * added by kernel
-         * Now below code skips the IP header part which is added by kernel. 
-         * Why? I don't know the reason you can search in google 
-         */
-        int ip_header_len = (recv_buf[0] & 0x0F) * 4;           // IP header skipping part
-        icmp_packet* icmp_resp  = (icmp_packet*)(recv_buf + ip_header_len);
+                /* So here's the case when the kernel receives the packet
+                 * from destination server it adds extra information
+                 * [IP Header] [ICMP Header] [ICMP Payload (your msg)]
+                 * ^         ^
+                 * added by kernel
+                 * Now below code skips the IP header part which is added by kernel. 
+                 * Why? I don't know the reason you can search in google 
+                 */
+                u8 ttl = recv_buf[8];
 
-        if (icmp_resp->header.type == 0 && icmp_resp->header.identifier == getpid())
-                printf("Payload: %.*s, Received ICMP Echo Reply in %ld ms\n",(int)(recv_len - ip_header_len - sizeof(icmp_header)), 
-                                icmp_resp->payload, rtt);
-        else
-                printf("Received non-echo reply. Type: %d, Code: %d\n",
-                       icmp_resp->header.type, icmp_resp->header.code);
+                int ip_header_len = (recv_buf[0] & 0x0F) * 4;           // IP header skipping part
+                icmp_packet* icmp_resp  = (icmp_packet*)(recv_buf + ip_header_len);
+
+                if (icmp_resp->header.type == 0 && icmp_resp->header.identifier == getpid())
+                        printf("Payload: %.*s, Received ICMP Echo Reply in %ld ms ttl=%d\n",(int)(recv_len - ip_header_len - sizeof(icmp_header)), 
+                                        icmp_resp->payload, rtt, ttl);
+                else
+                        printf("Received non-echo reply. Type: %d, Code: %d\n",
+                               icmp_resp->header.type, icmp_resp->header.code);
+                sleep(1);
+        }
 
         return 0;
 }
